@@ -24,6 +24,9 @@ This script leverages OpenAI's advanced language models to significantly enhance
 - **Recursive File Selection:** Supports deep directory navigation and file selection.
 - **Summary Reports:** Automatically generates a summary report detailing processed files, compilation results, and more.
 - **Enhanced Terminal Output:** Utilizes the `rich` library for improved readability and user experience.
+- **Optional Compilation Step:** Choose whether to run `cargo build` before exiting.
+- **Source Code Flexibility:** Choose between compiling original files or the newly optimized files.
+- **Configuration Files:** Automatically saves and loads user preferences, including the selected OpenAI model.
 
 ## Installation
 
@@ -66,7 +69,7 @@ $env:OPENAI_API_KEY = "your-api-key-here"
 Alternatively, edit the script to set your key directly:
 
 ```python
-client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+client = openai.OpenAI(api_key="your-api-key-here")
 ```
 
 ## Usage
@@ -92,14 +95,14 @@ python rust_openai_optimizer.py
 2. **File Selection:** Navigate directories interactively and select files to optimize.
 3. **Backup:** Original files are automatically backed up with a timestamp.
 4. **Optimization:** Selected files are sent to OpenAI for processing.
-5. **Compilation Check:** The script checks the optimized files with `cargo build`.
+5. **Compilation Check (Optional):** Choose to compile either the original or optimized files using `cargo build`.
 6. **Output:** Optimized files and a detailed summary report are saved in the `OpenAI` directory, and activities are logged.
+7. **Configuration:** Preferences such as selected models are automatically saved and loaded for convenience.
 
 ## Planned Features
 
 - **Git Integration:** Automatically stage and commit changes.
 - **Dry-Run Mode:** Preview changes before applying.
-- **Configuration Files:** Load/save frequent settings in YAML/JSON.
 
 ## License
 
@@ -110,4 +113,3 @@ This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) f
 ## Contributions
 
 Contributions and feature requests are welcome! Feel free to submit issues or pull requests on GitHub.
-
