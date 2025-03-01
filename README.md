@@ -99,7 +99,7 @@ python rust_openai_optimizer.py
 7. **Version Control Integration:** If in a Git repository, auto-stage and commit the changes.
 8. **Output & Reporting:** Save optimized files and generate a detailed summary report.
 
-## What's New (v0.4.0)
+## What's New (v0.4.1)
 
 - **GUI Mode:** File selection via a Tkinter dialog for a more user-friendly experience.
 - **Rollback Functionality:** Interactively restore files from timestamped backups.
@@ -107,6 +107,7 @@ python rust_openai_optimizer.py
 - **Git Integration:** Automatically stage and commit changes when in a Git repository.
 - **Caching/Incremental Processing:** Compute and compare file hashes to skip redundant processing.
 - **Enhanced Cargo Build:** Improved integration with `cargo build` using JSON message parsing.
+- Fixed: generate_summary_report() execution error
 
 ## What's New (v0.3.1)
 

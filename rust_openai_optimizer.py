@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ======================================================================
-rust_openai_optimizer.py - ver. 0.4.0
+rust_openai_optimizer.py - ver. 0.4.1
 ======================================================================
 Purpose:
   Optimize, debug, restructure, and add detailed comments to Rust source
@@ -354,7 +354,6 @@ def send_error_notification(error_message, notification_email=None):
         console.print(f"(Notification) Would send error notification to {notification_email}: {error_message}", style="yellow")
         logger.info(f"(Notification) Would send error notification to {notification_email}: {error_message}")
 
-
 # =============================================================================
 # Core Processing Functions (Sync & Async)
 # =============================================================================
@@ -525,7 +524,6 @@ async def process_code_async(file_contents, file_names, model, retries=3, timeou
             logger.error(msg)
             sys.exit(1)
 
-
 # =============================================================================
 # Interactive File Selection and GUI Mode
 # =============================================================================
@@ -648,7 +646,6 @@ def select_model():
         except (ValueError, IndexError):
             console.print("Invalid selection.", style="red")
 
-
 # =============================================================================
 # Version Control Integration (Git)
 # =============================================================================
@@ -691,7 +688,6 @@ def commit_changes(commit_message="Optimize Rust code via OpenAI"):
         logger.error(f"Git commit failed: {e}")
         console.print(f"Git commit failed: {e}", style="red")
 
-
 # =============================================================================
 # Preview and Diff Mode
 # =============================================================================
@@ -724,7 +720,6 @@ def show_diff(original, optimized, filename):
     diff_text = "\n".join(diff)
     return diff_text
 
-
 def preview_diffs(files, original_dir, optimized_dir):
     """
     Displays side-by-side diffs for all files between original and optimized versions.
@@ -753,7 +748,6 @@ def preview_diffs(files, original_dir, optimized_dir):
                 console.print(diff_text)
             else:
                 console.print(f"No changes for {rel_path}.", style="green")
-
 
 # =============================================================================
 # Rollback and Backup Management
@@ -811,7 +805,6 @@ def rollback_backup():
     console.print(f"Restored backup from {backup_choice}.", style="green")
     logger.info(f"Restored backup from {backup_choice}.")
 
-
 # =============================================================================
 # Enhanced Cargo Build Integration
 # =============================================================================
@@ -860,7 +853,6 @@ def run_cargo_build(compile_dir):
         logger.error(msg)
         sys.exit(1)
 
-
 # =============================================================================
 # Caching and Incremental Processing
 # =============================================================================
@@ -891,6 +883,121 @@ def compute_combined_hash(files, base_dir):
             combined += rel_path + file_hash
     return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
+# =============================================================================
+# Unit and Integration Tests
+# =============================================================================
+def run_tests():
+    """
+    Runs unit tests for critical functionalities like file I/O, backup creation,
+    and hash computation.
+
+    The tests ensure that:
+      - Files can be written and read correctly.
+      - Backup files are created as expected.
+      - The computed file hashes match the expected output.
+
+    Exits:
+      The program exits with code 0 if all tests pass; otherwise, it logs and
+      prints an error message and exits with a non-zero code.
+    """
+    console.print("Running tests...", style="bold blue")
+    logger.info("Starting tests.")
+
+    # Test file write and read functionality.
+    try:
+        with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
+            test_content = "Test content"
+            tmp.write(test_content)
+            tmp_path = tmp.name
+        assert read_file(tmp_path) == test_content, "Mismatch in file content."
+        os.remove(tmp_path)
+        logger.info("File I/O test passed.")
+    except Exception as e:
+        logger.error(f"File I/O test failed: {e}")
+        console.print(f"File I/O test failed: {e}", style="red")
+        sys.exit(1)
+
+    # Test backup functionality.
+    try:
+        with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
+            tmp.write("Backup test")
+            tmp_path = tmp.name
+        backup_path = backup_files([tmp_path])
+        backup_file = os.path.join(backup_path, os.path.basename(tmp_path))
+        assert os.path.exists(backup_file), "Backup file missing."
+        os.remove(tmp_path)
+        shutil.rmtree(backup_path)
+        logger.info("Backup test passed.")
+    except Exception as e:
+        logger.error(f"Backup test failed: {e}")
+        console.print(f"Backup test failed: {e}", style="red")
+        sys.exit(1)
+
+    console.print("All tests passed!", style="green")
+    logger.info("All tests passed.")
+    sys.exit(0)
+
+# =============================================================================
+# Summary Report Generation
+# =============================================================================
+def generate_summary_report(files, model, build_returncode):
+    """
+    Generates a summary report after processing the Rust source files.
+    
+    The report includes:
+      - Timestamp of the report generation.
+      - Total number of files processed.
+      - List of processed file paths.
+      - The OpenAI model used for optimization.
+      - Compilation result (success or failure based on cargo build).
+    
+    The report is both printed to the console and saved as 'summary_report.txt'
+    inside the output directory ("OpenAI").
+    
+    Parameters:
+      files (list):
+        A list of absolute file paths that were processed.
+      model (str):
+        The OpenAI model that was used.
+      build_returncode (int):
+        The return code from the cargo build process (0 indicates success).
+    
+    Returns:
+      str:
+        The full summary report as a string.
+    """
+    from datetime import datetime  # Ensure datetime is imported
+    report_lines = []
+    report_lines.append("Rust OpenAI Optimizer - Summary Report")
+    report_lines.append("=" * 50)
+    report_lines.append(f"Timestamp: {datetime.now()}")
+    report_lines.append(f"Number of files processed: {len(files)}")
+    report_lines.append("Processed Files:")
+    for f in files:
+        report_lines.append(f" - {f}")
+    report_lines.append(f"OpenAI Model Used: {model}")
+    if build_returncode == 0:
+        report_lines.append("Compilation Result: Success")
+    else:
+        report_lines.append("Compilation Result: Failed")
+    
+    report_text = "\n".join(report_lines)
+    
+    # Print the summary report to the console with formatting.
+    console.print("\nSummary Report:", style="bold magenta")
+    console.print(report_text)
+    
+    # Save the summary report to a file inside the output directory.
+    output_dir = "OpenAI"
+    summary_file = os.path.join(output_dir, "summary_report.txt")
+    try:
+        with open(summary_file, "w") as f:
+            f.write(report_text)
+        logger.info("Summary report saved successfully.")
+    except Exception as e:
+        logger.error(f"Failed to save summary report: {e}")
+    
+    return report_text
 
 # =============================================================================
 # Main Execution Function
@@ -1104,97 +1211,6 @@ def main():
     save_config(config, args.config, args.profile)
     console.print("Files and summary report saved in 'OpenAI'.", style="green")
     logger.info("Process complete.")
-
-
-# =============================================================================
-# Unit and Integration Tests
-# =============================================================================
-def run_tests():
-    """
-    Runs unit tests for critical functionalities like file I/O, backup creation,
-    and hash computation.
-
-    The tests ensure that:
-      - Files can be written and read correctly.
-      - Backup files are created as expected.
-      - The computed file hashes match the expected output.
-
-    Exits:
-      The program exits with code 0 if all tests pass; otherwise, it logs and
-      prints an error message and exits with a non-zero code.
-    """
-    console.print("Running tests...", style="bold blue")
-    logger.info("Starting tests.")
-
-    # Test file write and read functionality.
-    try:
-        with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
-            test_content = "Test content"
-            tmp.write(test_content)
-            tmp_path = tmp.name
-        assert read_file(tmp_path) == test_content, "Mismatch in file content."
-        os.remove(tmp_path)
-        logger.info("File I/O test passed.")
-    except Exception as e:
-        logger.error(f"File I/O test failed: {e}")
-        console.print(f"File I/O test failed: {e}", style="red")
-        sys.exit(1)
-
-    # Test backup functionality.
-    try:
-        with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
-            tmp.write("Backup test")
-            tmp_path = tmp.name
-        backup_path = backup_files([tmp_path])
-        backup_file = os.path.join(backup_path, os.path.basename(tmp_path))
-        assert os.path.exists(backup_file), "Backup file missing."
-        os.remove(tmp_path)
-        shutil.rmtree(backup_path)
-        logger.info("Backup test passed.")
-    except Exception as e:
-        logger.error(f"Backup test failed: {e}")
-        console.print(f"Backup test failed: {e}", style="red")
-        sys.exit(1)
-
-    console.print("All tests passed!", style="green")
-    logger.info("All tests passed.")
-    sys.exit(0)
-
-
-# =============================================================================
-# Summary Report Generation (Placeholder Implementation)
-# =============================================================================
-def generate_summary_report(files, model, build_returncode):
-    """
-    Generates a summary report after processing.
-
-    The report includes details such as:
-      - List of processed files.
-      - OpenAI model used.
-      - Compilation result.
-      - Timestamps and backup locations.
-    
-    This function is a placeholder and should be expanded to include any
-    additional reporting or logging required by the user.
-
-    Parameters:
-      files (list):
-        The list of processed file paths.
-      model (str):
-        The OpenAI model that was used.
-      build_returncode (int):
-        The return code from the cargo build process (0 for success).
-    """
-    console.print("\nSummary Report:", style="bold magenta")
-    console.print(f"Processed {len(files)} file(s).")
-    console.print(f"OpenAI Model: {model}")
-    if build_returncode == 0:
-        console.print("Compilation: Success", style="green")
-    else:
-        console.print("Compilation: Failed", style="red")
-    # Additional summary details can be added here.
-    logger.info("Summary report generated.")
-
 
 # =============================================================================
 # Entry Point
