@@ -6,27 +6,24 @@
 
 ## Overview
 
-This script leverages OpenAI's advanced language models to significantly enhance Rust code projects by:
+This powerful Python3 script leverages OpenAI's GPT models to optimize, debug, restructure, and thoroughly comment your Rust source code. In the latest update, the tool includes:
 
-- **Detecting and removing errors and bugs.**
-- **Restructuring code for efficiency and compactness.**
-- **Adding detailed technical comments throughout the code.**
-- **Ensuring compatibility across multiple Rust source files.**
-- **Verifying successful compilation with `cargo build`.**
-- **Generating a comprehensive summary report after processing.**
+- Advanced interactive file selection with improved keyboard shortcuts.
+- Automatic, timestamped backups of selected files.
+- Detailed summary report generation including model used, processed files, and compilation results.
+- Robust error handling and logging.
+- Persistent user configuration for selected files and models.
 
 ## Features
 
-- **Interactive Terminal Interface:** Navigate and select files intuitively using keyboard shortcuts.
+- **Interactive Terminal Interface:** Enhanced navigation and file selection using Prompt Toolkit with custom key bindings.
 - **Automatic Backup:** Creates timestamped backups of original files before processing.
-- **Detailed Activity Logging:** Maintains logs of all actions, including backups, model usage, and compilation results.
-- **Configurable OpenAI Models:** Easily select between available GPT models.
-- **Recursive File Selection:** Supports deep directory navigation and file selection.
-- **Summary Reports:** Automatically generates a summary report detailing processed files, compilation results, and more.
-- **Enhanced Terminal Output:** Utilizes the `rich` library for improved readability and user experience.
-- **Optional Compilation Step:** Choose whether to run `cargo build` before exiting.
-- **Source Code Flexibility:** Choose between compiling original files or the newly optimized files.
-- **Configuration Files:** Automatically saves and loads user preferences, including the selected OpenAI model.
+- **Detailed Activity Logging:** Maintains logs of all actions (backups, model usage, compilation results) in an `activity.log` file.
+- **Configurable OpenAI Models & Persistence:** Save preferred models and selected files for future runs.
+- **Recursive File Selection:** Supports deep directory navigation and quick file selection.
+- **Summary Reports:** Generates a detailed report (in `OpenAI/summary_report.txt`) with processing details and compilation status.
+- **Optional Compilation Check:** Choose to compile either the original or the optimized files using `cargo build`.
+- **Enhanced Error Handling:** Verifies tool availability (cargo), and robustly handles API and file I/O errors.
 
 ## Installation
 
@@ -98,6 +95,13 @@ python rust_openai_optimizer.py
 5. **Compilation Check (Optional):** Choose to compile either the original or optimized files using `cargo build`.
 6. **Output:** Optimized files and a detailed summary report are saved in the `OpenAI` directory, and activities are logged.
 7. **Configuration:** Preferences such as selected models are automatically saved and loaded for convenience.
+
+## What's New (v0.2.0)
+
+- Improved interactive CLI with refined navigation and help commands.
+- Advanced backup process with timestamped directories.
+- Detailed summary report generation detailing models used, files processed, and compilation outcomes.
+- Persistent configuration settings for a seamless user experience.
 
 ## Planned Features
 
