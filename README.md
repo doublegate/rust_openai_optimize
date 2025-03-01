@@ -98,13 +98,14 @@ python rust_openai_optimizer.py
 6. **Compilation Check:** Optionally run `cargo build` on original or optimized files.
 7. **Output & Reporting:** Save optimized files and generate a detailed summary report.
 
-## What's New (v0.3.0)
+## What's New (v0.3.1)
 
 - **CLI Argument Parsing:** Now supports options for model selection, file inputs, non-interactive mode, asynchronous processing (`--async-mode`), test execution (`--test`), and configuration via `--config`.
 - **Asynchronous Processing:** Added async API calls for improved performance.
 - **Unit & Integration Testing:** Included tests to verify file I/O and backup functionality.
 - **Structured Logging:** Integrated Python's logging module for advanced, structured logging.
 - **Error Notifications:** (Optional) Email notifications for critical errors are supported via configuration.
+- Added formatting: reduced indentations and line lengths; removed unnecessary module(s)
 
 ## What's New (v0.2.0)
 
