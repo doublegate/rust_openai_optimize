@@ -8,13 +8,13 @@
 
 This powerful Python3 script leverages OpenAI's GPT models to optimize, debug, restructure, and thoroughly comment your Rust source code. In the latest update, the tool now includes:
 
-- Advanced interactive file selection with improved keyboard shortcuts.
-- Automatic, timestamped backups of selected files.
-- Detailed summary report generation including model used, processed files, and compilation results.
-- Robust error handling with structured logging.
-- Persistent configuration saving.
-- Support for command-line arguments to run in non-interactive, asynchronous, or test modes.
-- Optional error notifications via email.
+- Advanced interactive file selection (CLI and GUI modes).
+- Automatic, timestamped backups and an interactive rollback mechanism.
+- Detailed preview/diff mode for comparing optimized changes.
+- Git integration for automatic staging and commits.
+- Caching and incremental processing to avoid redundant work.
+- Support for both synchronous and asynchronous API calls.
+- Robust error handling with structured logging and optional email notifications.
 
 ## Features
 
@@ -91,12 +91,22 @@ python rust_openai_optimizer.py
 ## Workflow
 
 1. **Model & CLI Options:** Choose or pass the OpenAI model and other options through command-line arguments.
-2. **File Selection:** Either through interactive prompts or CLI-provided file paths.
-3. **Backup:** Create timestamped backups of original files.
+2. **File Selection:** Use interactive prompts or a GUI file dialog for selecting Rust files.
+3. **Backup & Caching:** Create timestamped backups, compute file hashes for caching, and restore from cache when no changes are detected.
 4. **Optimization Process:** Aggregate and send source code to OpenAI using synchronous or asynchronous calls.
-5. **Testing (Optional):** Run integrated unit tests using the `--test` flag.
+5. **Preview/Diff Mode (Optional):** Review differences between original and optimized files before applying changes.
 6. **Compilation Check:** Optionally run `cargo build` on original or optimized files.
-7. **Output & Reporting:** Save optimized files and generate a detailed summary report.
+7. **Version Control Integration:** If in a Git repository, auto-stage and commit the changes.
+8. **Output & Reporting:** Save optimized files and generate a detailed summary report.
+
+## What's New (v0.4.0)
+
+- **GUI Mode:** File selection via a Tkinter dialog for a more user-friendly experience.
+- **Rollback Functionality:** Interactively restore files from timestamped backups.
+- **Preview/Diff Mode:** View side-by-side differences between original and optimized code.
+- **Git Integration:** Automatically stage and commit changes when in a Git repository.
+- **Caching/Incremental Processing:** Compute and compare file hashes to skip redundant processing.
+- **Enhanced Cargo Build:** Improved integration with `cargo build` using JSON message parsing.
 
 ## What's New (v0.3.0)
 
