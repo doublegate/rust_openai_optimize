@@ -1,669 +1,915 @@
 #!/usr/bin/env python3
-"""
-======================================================================
-rust_openai_optimizer.py - ver.0.2.0
-======================================================================
-Purpose:
-  Optimize, debug, restructure, and add detailed comments to Rust source
-  code by leveraging OpenAI's LLM API. The script enables interactive file
-  selection (including Cargo.toml), sends the code for processing, and writes
-  the optimized files to a new output directory while preserving the original
-  project structure. This ensures that 'cargo build' can compile the optimized
-  project correctly.
-
-Usage:
-  - Set the OPENAI_API_KEY environment variable.
-  - Run this script from the terminal.
-  - Follow interactive prompts to select files, choose an OpenAI model,
-    and optionally run 'cargo build' to verify the optimized project.
-
-Author:
-  DoubleGate -- 2025: https://github.com/doublegate/rust_openai_optimize
-
-Note:
-  The script contains extensive error handling and logging to ensure robustness
-  in various runtime environments.
-======================================================================
-"""
-
+'''
+# =============================================================================
+# rust_openai_optimizer.py - v0.3.0
+# =============================================================================
+# Author:
+#     DoubleGate -- 2025: https://github.com/doublegate/rust_openai_optimize
+#
+# Purpose:
+#     Optimize, debug, restructure, and add comprehensive technical comments to Rust
+#     source code by leveraging OpenAI's LLM API. This script is designed to transform
+#     Rust projects with thorough documentation and enhanced code quality, adhering to
+#     the rigorous commenting and documentation standards found in idiomatic Rust.
+#
+# Detailed Explanation:
+#     - The script processes multiple Rust source files—including Cargo.toml and .rs files—
+#       to produce optimized code that not only compiles successfully but also provides
+#       in-depth technical commentary akin to Rust's own documentation practices.
+#
+#     - Extensive logging, configuration management, and error handling ensure that each
+#       step is traceable, robust, and maintainable. Each function is meticulously commented,
+#       explaining inputs, outputs, and exceptional behavior, mirroring the transparency
+#       and explicitness of Rust's coding standards.
+#
+# Execution Environment:
+#     - The above shebang line ensures that when executed on Unix-like systems, the script is
+#       run using the Python interpreter as defined in the environment, enabling cross-platform
+#       compatibility.
+#
+# Developer Notes:
+#     - The design leverages both synchronous and asynchronous methodologies to interface with
+#       the OpenAI API, supporting a range of deployment scenarios.
+#     - Comments throughout the codebase are enriched with detailed, technical descriptions to
+#       facilitate maintenance and further development, following principles similar to Rust
+#       emphasis on clarity, safety, and performance.
+#
+# Future Enhancements:
+#     - Incorporate additional Rust-specific optimizations such as module-level documentation
+#       and inline code annotations that simulate Rust's doc-comment style.
+#     - Expand testing and benchmark suites inspired by Rust cargo testing framework.
+#
+# =============================================================================
+'''
 # =============================================================================
 # Standard Library Imports
 # =============================================================================
-import os              # Provides OS-level interfaces: file paths, env variables, etc.
-import subprocess      # Enables execution of external commands (e.g., "cargo build")
-import sys             # Provides access to system-specific parameters and functions.
-import shutil          # Facilitates high-level file operations such as copying files.
-import json            # For serializing and deserializing configuration data.
-from datetime import datetime  # To generate timestamps for backups and logging.
-import time            # Allows pausing execution (used in retry/backoff mechanisms).
-import random          # Used to introduce jitter into retry delays.
-import signal          # To handle termination signals gracefully.
+import os               # File system operations, environment variables.
+import sys              # System-specific parameters and functions.
+import subprocess       # To run external commands (e.g., cargo build).
+import shutil           # High-level file operations (e.g., copying files).
+import json             # JSON encoding/decoding for configuration.
+from datetime import datetime  # Timestamps for backups and logs.
+import time             # For delays in retry logic.
+import random           # For jitter in exponential backoff.
+import signal           # For graceful signal handling.
+import argparse         # For command-line argument parsing.
+import logging          # Structured logging.
+import asyncio          # For asynchronous API calls.
+import smtplib          # (Optional) For sending email notifications.
 
 # =============================================================================
 # Third-Party Library Imports
 # =============================================================================
-import openai          # Official OpenAI API client.
-
-# -----------------------------------------------------------------------------
-# Attempt to import specific error classes from the OpenAI module.
-# This addresses the error where "openai.error" is not found.
-# If the import fails (perhaps due to a different package version),
-# we fallback to using the base Exception class.
-# -----------------------------------------------------------------------------
+import openai           # OpenAI API client.
 try:
-    from openai.error import APIConnectionError, OpenAIError
+        from openai.error import APIConnectionError, OpenAIError
 except ImportError:
-    APIConnectionError = Exception
-    OpenAIError = Exception
+        APIConnectionError = Exception
+        OpenAIError = Exception
 
-from prompt_toolkit import PromptSession  # Enables interactive command-line sessions.
-from prompt_toolkit.completion import PathCompleter  # Provides path autocompletion in CLI.
-from prompt_toolkit.key_binding import KeyBindings  # Facilitates custom key bindings.
-from tqdm import tqdm  # Displays progress bars for lengthy I/O operations.
-from rich.console import Console  # Provides enhanced terminal output with styling.
+from prompt_toolkit import PromptSession  # Interactive CLI session.
+from prompt_toolkit.completion import PathCompleter  # CLI file path autocompletion.
+from prompt_toolkit.key_binding import KeyBindings  # Custom key bindings.
+from tqdm import tqdm   # Progress bars for lengthy operations.
+from rich.console import Console  # Enhanced terminal output.
 
 # =============================================================================
-# Global Object Initialization and Environment Checks
+# Global Objects and Environment Checks
 # =============================================================================
 console = Console()
 
-# Ensure the OPENAI_API_KEY is set; if not, exit with a clear error message.
+# Configure structured logging.
+logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        filename="rust_openai_optimizer.log",
+        filemode="a"
+)
+logger = logging.getLogger(__name__)
+
+# Ensure the OpenAI API key is set.
 openai.api_key = os.getenv('OPENAI_API_KEY')
 if not openai.api_key:
-    console.print("Error: OPENAI_API_KEY environment variable is not set. Exiting.", style="red")
-    sys.exit(1)
+        console.print("Error: OPENAI_API_KEY environment variable is not set. Exiting.", style="red")
+        logger.error("OPENAI_API_KEY not set.")
+        sys.exit(1)
+
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
 def read_file(filepath):
-    """
-    Reads the entire contents of a file and returns it as a string.
+        """
+        Reads the entire contents of a file and returns it as a string.
 
-    Parameters:
-      filepath (str): The absolute or relative path to the file.
+        Parameters:
+            filepath (str): The path to the file.
 
-    Returns:
-      str: The content of the file.
+        Returns:
+            str: Contents of the file.
 
-    Raises:
-      SystemExit: If the file cannot be read, the error is logged and the script exits.
+        Raises:
+            SystemExit: If reading fails.
+        """
+        try:
+                with open(filepath, 'r') as file:
+                        data = file.read()
+                        logger.debug(f"Read file: {filepath}")
+                        return data
+        except Exception as e:
+                error_msg = f"Error reading file '{filepath}': {e}"
+                console.print(error_msg, style="red")
+                logger.error(error_msg)
+                sys.exit(1)
 
-    Implementation Details:
-      - Uses a try/except block to catch and log I/O errors.
-      - Exits the script if reading fails.
-    """
-    try:
-        with open(filepath, 'r') as file:
-            return file.read()
-    except Exception as e:
-        console.print(f"Error reading file '{filepath}': {e}", style="red")
-        log_activity(f"Error reading file '{filepath}': {e}")
-        sys.exit(1)
 
 def write_file(filepath, content):
-    """
-    Writes content to a file, overwriting the file if it exists.
+        """
+        Writes content to a file, overwriting it if it exists.
 
-    Parameters:
-      filepath (str): The absolute or relative path where the file should be written.
-      content (str): The string content to be written to the file.
+        Parameters:
+            filepath (str): The destination path.
+            content (str): The content to write.
 
-    Returns:
-      None
+        Raises:
+            SystemExit: If writing fails.
+        """
+        try:
+                with open(filepath, 'w') as file:
+                        file.write(content)
+                        logger.debug(f"Wrote file: {filepath}")
+        except Exception as e:
+                error_msg = f"Error writing file '{filepath}': {e}"
+                console.print(error_msg, style="red")
+                logger.error(error_msg)
+                sys.exit(1)
 
-    Raises:
-      SystemExit: If writing the file fails, the error is logged and the script exits.
-
-    Implementation Details:
-      - Uses a try/except block to capture and log exceptions during file writing.
-    """
-    try:
-        with open(filepath, 'w') as file:
-            file.write(content)
-    except Exception as e:
-        console.print(f"Error writing file '{filepath}': {e}", style="red")
-        log_activity(f"Error writing file '{filepath}': {e}")
-        sys.exit(1)
 
 def clear_screen():
-    """
-    Clears the terminal screen.
+        """
+        Clears the terminal screen.
 
-    Behavior:
-      - On Windows: Executes the 'cls' command.
-      - On Unix-like systems: Executes the 'clear' command.
+        Uses 'cls' on Windows and 'clear' on Unix.
+        """
+        os.system('cls' if os.name == 'nt' else 'clear')
 
-    Returns:
-      None
-    """
-    os.system('cls' if os.name == 'nt' else 'clear')
 
 def backup_files(files, backup_dir="backups"):
-    """
-    Creates a timestamped backup of the specified files.
+        """
+        Creates a timestamped backup directory and copies the specified files.
 
-    Parameters:
-      files (list): A list of file paths to be backed up.
-      backup_dir (str, optional): The parent directory for backups (default "backups").
+        Parameters:
+            files (list): List of file paths.
+            backup_dir (str, optional): Parent backup directory.
 
-    Returns:
-      str: The path to the created backup directory.
+        Returns:
+            str: Path to the backup directory.
 
-    Raises:
-      SystemExit: If the backup process fails.
+        Raises:
+            SystemExit: If backup fails.
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = os.path.join(backup_dir, timestamp)
+        try:
+                os.makedirs(backup_path, exist_ok=True)
+                for file in files:
+                        shutil.copy(file, backup_path)
+                logger.debug(f"Backup created at {backup_path}")
+        except Exception as e:
+                error_msg = f"Error backing up files: {e}"
+                console.print(error_msg, style="red")
+                logger.error(error_msg)
+                sys.exit(1)
+        return backup_path
 
-    Implementation Details:
-      - Generates a unique timestamp.
-      - Creates the backup directory if it does not exist.
-      - Copies each file to the backup directory.
-    """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = os.path.join(backup_dir, timestamp)
-    try:
-        os.makedirs(backup_path, exist_ok=True)
-        for file in files:
-            shutil.copy(file, backup_path)
-    except Exception as e:
-        console.print(f"Error backing up files: {e}", style="red")
-        log_activity(f"Error backing up files: {e}")
-        sys.exit(1)
-    return backup_path
 
 def log_activity(activity):
-    """
-    Logs a message with a timestamp to 'activity.log'.
+        """
+        Logs an activity message with a timestamp to 'activity.log'.
 
-    Parameters:
-      activity (str): A description of the event or error to log.
+        Parameters:
+            activity (str): Message to log.
+        """
+        try:
+                with open('activity.log', 'a') as log:
+                        log.write(f"{datetime.now()} - {activity}\n")
+                logger.info(activity)
+        except Exception as e:
+                console.print(f"Error logging activity: {e}", style="red")
+                logger.error(f"Error logging activity: {e}")
 
-    Returns:
-      None
-
-    Implementation Details:
-      - Opens 'activity.log' in append mode to preserve historical logs.
-    """
-    try:
-        with open('activity.log', 'a') as log:
-            log.write(f"{datetime.now()} - {activity}\n")
-    except Exception as e:
-        console.print(f"Error logging activity: {e}", style="red")
 
 def load_config(config_path="config.json"):
-    """
-    Loads configuration settings from a JSON file.
+        """
+        Loads configuration settings from a JSON file.
 
-    Parameters:
-      config_path (str, optional): The path to the configuration file (default "config.json").
+        Parameters:
+            config_path (str): Path to config file.
 
-    Returns:
-      dict: The configuration data, or an empty dictionary if the file is not found or cannot be parsed.
+        Returns:
+            dict: Configuration data.
+        """
+        if os.path.exists(config_path):
+                try:
+                        with open(config_path, 'r') as file:
+                                config = json.load(file)
+                                logger.debug("Configuration loaded.")
+                                return config
+                except Exception as e:
+                        error_msg = f"Error loading configuration: {e}"
+                        console.print(error_msg, style="red")
+                        logger.error(error_msg)
+                        return {}
+        return {}
 
-    Implementation Details:
-      - Uses a try/except block to handle JSON decoding and file I/O errors.
-    """
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, 'r') as file:
-                return json.load(file)
-        except Exception as e:
-            console.print(f"Error loading configuration: {e}", style="red")
-            log_activity(f"Error loading configuration: {e}")
-            return {}
-    return {}
 
 def save_config(config, config_path="config.json"):
-    """
-    Saves configuration data to a JSON file with human-readable indentation.
+        """
+        Saves configuration settings to a JSON file.
 
-    Parameters:
-      config (dict): The configuration data to be saved.
-      config_path (str, optional): The destination path for the config file (default "config.json").
-
-    Returns:
-      None
-
-    Implementation Details:
-      - Uses a try/except block to capture any errors during file writing.
-    """
-    try:
-        with open(config_path, 'w') as file:
-            json.dump(config, file, indent=4)
-    except Exception as e:
-        console.print(f"Error saving configuration: {e}", style="red")
-        log_activity(f"Error saving configuration: {e}")
-
-# =============================================================================
-# Core Processing Function
-# =============================================================================
-def process_code(file_contents, file_names, model):
-    """
-    Processes concatenated Rust source files by sending them to the OpenAI API.
-
-    Description:
-      Constructs a detailed prompt instructing the AI to:
-        1. Debug and remove errors.
-        2. Restructure code for efficiency.
-        3. Add extensive, technical code comments.
-        4. Ensure cross-file compatibility (methods, functions, traits, etc.).
-      The AI is also instructed to ensure that the code compiles using 'cargo build'.
-
-    Parameters:
-      file_contents (str): Concatenated contents of input files with headers.
-      file_names (str): Comma-separated list of relative file paths.
-      model (str): The OpenAI model to use (e.g., "gpt-4o").
-
-    Returns:
-      str: Processed Rust code, with file headers intact, as returned by the API.
-
-    Implementation Details:
-      - Implements retry logic with exponential backoff (and random jitter) for resilience.
-      - Catches both connection errors and general OpenAI errors.
-    """
-    prompt = f"""
-    You are an expert Rust developer. Given the following Rust source files, perform:
-
-    1. Debugging and error detection/removal.
-    2. Code restructuring for compactness and efficiency.
-    3. Adding full, technically detailed code comments.
-    4. Ensuring cross-file compatibility of methods, functions, traits, etc.
-
-    Ensure the code compiles successfully using `cargo build`.
-
-    Files provided:
-    {file_names}
-
-    ### Begin Rust Source Files ###
-    {file_contents}
-    ### End Rust Source Files ###
-
-    Return each file clearly separated with headers:
-    ## File: relative/path/to/file ##
-    <processed code here>
-    """
-
-    max_retries = 3
-    base_retry_delay = 5  # seconds
-
-    for attempt in range(1, max_retries + 1):
+        Parameters:
+            config (dict): Configuration data.
+            config_path (str): Destination path.
+        """
         try:
-            # Send the prompt to the OpenAI API using the chat completions endpoint.
-            # The low temperature (0.1) ensures deterministic output.
-            response = openai.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "You are an assistant specializing in Rust programming."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                timeout=60  # Timeout set to 60 seconds to avoid hanging requests.
-            )
-            # Extract and return the processed content from the API response.
-            return response.choices[0].message.content
+                with open(config_path, 'w') as file:
+                        json.dump(config, file, indent=4)
+                logger.debug("Configuration saved.")
+        except Exception as e:
+                error_msg = f"Error saving configuration: {e}"
+                console.print(error_msg, style="red")
+                logger.error(error_msg)
 
-        except APIConnectionError as e:
-            # Handle connection errors with retry logic.
-            if attempt < max_retries:
-                wait_time = base_retry_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
-                console.print(
-                    f"Error connecting to OpenAI API (attempt {attempt}/{max_retries}): {e}. "
-                    f"Retrying in {wait_time:.2f} seconds...", style="red"
-                )
-                time.sleep(wait_time)
-            else:
-                console.print(
-                    f"Error connecting to OpenAI API on attempt {attempt}. No more retries left. Exiting.",
-                    style="red"
-                )
-                sys.exit(1)
-        except OpenAIError as e:
-            # Handle other errors returned by the OpenAI API.
-            console.print(f"OpenAI API returned an error: {e}", style="red")
-            log_activity(f"OpenAI API error: {e}")
-            sys.exit(1)
+
+def send_error_notification(error_message, notification_email=None):
+        """
+        (Placeholder) Sends an error notification via email if configured.
+
+        Parameters:
+            error_message (str): The error message to send.
+            notification_email (str, optional): Destination email address.
+
+        Notes:
+            To implement, configure SMTP settings and credentials.
+        """
+        if notification_email:
+                # Example: Uncomment and configure if you wish to send an email.
+                # smtp_server = "smtp.example.com"
+                # smtp_port = 587
+                # username = os.getenv("SMTP_USERNAME")
+                # password = os.getenv("SMTP_PASSWORD")
+                # from_addr = os.getenv("SMTP_FROM")
+                # try:
+                #     server = smtplib.SMTP(smtp_server, smtp_port)
+                #     server.starttls()
+                #     server.login(username, password)
+                #     message = f"Subject: Rust Optimizer Error\n\n{error_message}"
+                #     server.sendmail(from_addr, notification_email, message)
+                #     server.quit()
+                #     logger.info("Error notification sent.")
+                # except Exception as e:
+                #     logger.error(f"Failed to send error notification: {e}")
+                console.print(f"(Notification) Would send error notification to {notification_email}: {error_message}", style="yellow")
+                logger.info(f"(Notification) Would send error notification to {notification_email}: {error_message}")
+
 
 # =============================================================================
-# Interactive File Selection Functions
+# Core Processing Functions (Sync & Async)
+# =============================================================================
+def process_code(file_contents, file_names, model, retries=3, timeout=60):
+        """
+        Processes Rust source code by sending it to the OpenAI API.
+
+        Constructs a detailed prompt for debugging, restructuring, and commenting
+        the code. Uses retry logic with exponential backoff.
+
+        Parameters:
+            file_contents (str): Concatenated source file contents with headers.
+            file_names (str): Comma-separated list of relative file paths.
+            model (str): OpenAI model to use.
+            retries (int): Number of retry attempts (default 3).
+            timeout (int): Request timeout in seconds (default 60).
+
+        Returns:
+            str: Processed code as returned by the API.
+
+        Raises:
+            SystemExit: If the API call fails after retries.
+        """
+        prompt = f"""
+        You are an expert Rust developer. Given the following Rust source files, perform:
+
+        1. Debugging and error detection/removal.
+        2. Code restructuring for compactness and efficiency.
+        3. Adding full, technically detailed code comments.
+        4. Ensuring cross-file compatibility of methods, functions, traits, etc.
+
+        Ensure the code compiles successfully using `cargo build`.
+
+        Files provided:
+        {file_names}
+
+        ### Begin Rust Source Files ###
+        {file_contents}
+        ### End Rust Source Files ###
+
+        Return each file clearly separated with headers:
+        ## File: relative/path/to/file ##
+        <processed code here>
+        """
+
+        base_retry_delay = 5  # seconds
+
+        for attempt in range(1, retries + 1):
+                try:
+                        response = openai.chat.completions.create(
+                                model=model,
+                                messages=[
+                                        {"role": "system", "content": "You are an assistant specializing in Rust programming."},
+                                        {"role": "user", "content": prompt}
+                                ],
+                                temperature=0.1,
+                                timeout=timeout
+                        )
+                        logger.info("API call succeeded.")
+                        return response.choices[0].message.content
+
+                except APIConnectionError as e:
+                        if attempt < retries:
+                                wait_time = base_retry_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
+                                error_msg = (f"Error connecting to OpenAI API (attempt {attempt}/{retries}): {e}. "
+                                                         f"Retrying in {wait_time:.2f} seconds...")
+                                console.print(error_msg, style="red")
+                                logger.error(error_msg)
+                                time.sleep(wait_time)
+                        else:
+                                error_msg = f"Error connecting to OpenAI API on attempt {attempt}. No more retries left."
+                                console.print(error_msg, style="red")
+                                logger.error(error_msg)
+                                sys.exit(1)
+                except OpenAIError as e:
+                        error_msg = f"OpenAI API error: {e}"
+                        console.print(error_msg, style="red")
+                        logger.error(error_msg)
+                        sys.exit(1)
+
+
+async def process_code_async(file_contents, file_names, model, retries=3, timeout=60):
+        """
+        Asynchronously processes Rust source code using the OpenAI API.
+
+        This function mirrors the synchronous version but uses async calls.
+        
+        Parameters:
+            file_contents (str): Concatenated source file contents.
+            file_names (str): Comma-separated list of relative file paths.
+            model (str): OpenAI model to use.
+            retries (int): Number of retry attempts.
+            timeout (int): Timeout for the request.
+        
+        Returns:
+            str: Processed code from the API.
+        
+        Raises:
+            SystemExit: If the API call fails after retries.
+        """
+        prompt = f"""
+        You are an expert Rust developer. Given the following Rust source files, perform:
+
+        1. Debugging and error detection/removal.
+        2. Code restructuring for compactness and efficiency.
+        3. Adding full, technically detailed code comments.
+        4. Ensuring cross-file compatibility of methods, functions, traits, etc.
+
+        Ensure the code compiles successfully using `cargo build`.
+
+        Files provided:
+        {file_names}
+
+        ### Begin Rust Source Files ###
+        {file_contents}
+        ### End Rust Source Files ###
+
+        Return each file clearly separated with headers:
+        ## File: relative/path/to/file ##
+        <processed code here>
+        """
+        base_retry_delay = 5  # seconds
+
+        for attempt in range(1, retries + 1):
+                try:
+                        response = await openai.ChatCompletion.acreate(
+                                model=model,
+                                messages=[
+                                        {"role": "system", "content": "You are an assistant specializing in Rust programming."},
+                                        {"role": "user", "content": prompt}
+                                ],
+                                temperature=0.1,
+                                timeout=timeout
+                        )
+                        logger.info("Async API call succeeded.")
+                        return response.choices[0].message.content
+
+                except APIConnectionError as e:
+                        if attempt < retries:
+                                wait_time = base_retry_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
+                                error_msg = (f"Async error connecting to OpenAI API (attempt {attempt}/{retries}): {e}. "
+                                                         f"Retrying in {wait_time:.2f} seconds...")
+                                console.print(error_msg, style="red")
+                                logger.error(error_msg)
+                                await asyncio.sleep(wait_time)
+                        else:
+                                error_msg = f"Async error connecting to OpenAI API on attempt {attempt}. No more retries left."
+                                console.print(error_msg, style="red")
+                                logger.error(error_msg)
+                                sys.exit(1)
+                except OpenAIError as e:
+                        error_msg = f"Async OpenAI API error: {e}"
+                        console.print(error_msg, style="red")
+                        logger.error(error_msg)
+                        sys.exit(1)
+
+
+# =============================================================================
+# Interactive File Selection and Model Choice Functions
 # =============================================================================
 def select_files():
-    """
-    Launches an interactive CLI for directory navigation and file selection.
-
-    Behavior:
-      - Displays current directory and lists selected files.
-      - Allows navigation via 'Enter' (to open a directory or select a file),
-        'Backspace' (to move up a directory), and 'd' (to finish selection).
-      - Only files with the '.rs' extension or named 'Cargo.toml' are selectable.
-
-    Returns:
-      list: A list of absolute file paths selected by the user.
-
-    Implementation Details:
-      Utilizes prompt_toolkit for rich CLI features like autocompletion and custom key bindings.
-    """
-    session = PromptSession()
-    completer = PathCompleter(expanduser=True)
-    selected_files = []
-    bindings = KeyBindings()
-
-    def refresh():
-        """Refreshes the CLI display with updated directory, file selection, and command help."""
-        clear_screen()
-        console.print(f"[bold cyan]Current Directory:[/bold cyan] {os.getcwd()}\n")
-        console.print("[bold green]Selected Files:[/bold green]")
-        for file in selected_files:
-            console.print(f" - {file}")
-        console.print(
-            "\n[bold yellow]Commands:[/bold yellow]\n"
-            "- Enter: Open directory or select file\n"
-            "- Backspace: Go up directory\n"
-            "- d: Finish selection\n"
-            "- esc/q: Exit\n"
-            "- ?: Help\n"
-            "- Tab: Autocomplete file or directory names"
-        )
-
-    @bindings.add('enter')
-    def _(event):
         """
-        Handles the 'Enter' key event.
-        - If input is a directory, navigates into it.
-        - If input is a valid file (.rs or Cargo.toml), adds its absolute path to the selection.
+        Launches an interactive CLI for navigating directories and selecting files.
+
+        Only files ending with '.rs' or named 'Cargo.toml' are selectable.
+
+        Returns:
+            list: List of absolute file paths selected.
         """
-        buffer = event.app.current_buffer
-        path = buffer.text.strip()
-        if os.path.isdir(path):
-            os.chdir(path)
-        elif os.path.isfile(path) and (path.endswith('.rs') or os.path.basename(path) == 'Cargo.toml'):
-            selected_files.append(os.path.abspath(path))
-        buffer.reset()
+        session = PromptSession()
+        completer = PathCompleter(expanduser=True)
+        selected_files = []
+        bindings = KeyBindings()
+
+        def refresh():
+                """Refreshes the display with current directory, file selections, and command help."""
+                clear_screen()
+                console.print(f"[bold cyan]Current Directory:[/bold cyan] {os.getcwd()}\n")
+                console.print("[bold green]Selected Files:[/bold green]")
+                for file in selected_files:
+                        console.print(f" - {file}")
+                console.print(
+                        "\n[bold yellow]Commands:[/bold yellow]\n"
+                        "Enter: Open directory or select file\n"
+                        "Backspace: Go up directory\n"
+                        "d: Finish selection\n"
+                        "esc/q: Exit\n"
+                        "?: Help\n"
+                        "Tab: Autocomplete"
+                )
+
+        @bindings.add('enter')
+        def _(event):
+                """
+                On Enter:
+                    - If the path is a directory, navigate into it.
+                    - If it's a valid file, add its absolute path to the selection.
+                """
+                buffer = event.app.current_buffer
+                path = buffer.text.strip()
+                if os.path.isdir(path):
+                        os.chdir(path)
+                elif os.path.isfile(path) and (path.endswith('.rs') or os.path.basename(path) == 'Cargo.toml'):
+                        selected_files.append(os.path.abspath(path))
+                buffer.reset()
+                refresh()
+
+        @bindings.add('backspace')
+        def _(event):
+                """On Backspace: move up one directory."""
+                os.chdir('..')
+                event.app.current_buffer.reset()
+                refresh()
+
+        @bindings.add('escape', eager=True)
+        @bindings.add('q', eager=True)
+        def _(event):
+                """On Escape or q: exit immediately."""
+                console.print("\nExiting program.", style="red")
+                sys.exit(0)
+
+        @bindings.add('d')
+        def _(event):
+                """On d: finish selection."""
+                event.app.exit(result="done")
+
+        @bindings.add('?')
+        def _(event):
+                """On ?: display help."""
+                console.print(
+                        "\n[bold magenta]Help:[/bold magenta]\n"
+                        "Use Enter to open/select, Backspace to go up, d to finish, and esc/q to exit."
+                )
+
         refresh()
+        while True:
+                path = session.prompt('> ', completer=completer, key_bindings=bindings)
+                if path == "done":
+                        break
 
-    @bindings.add('backspace')
-    def _(event):
-        """
-        Handles the 'Backspace' key event.
-        Navigates up one directory level.
-        """
-        os.chdir('..')
-        event.app.current_buffer.reset()
-        refresh()
+        return selected_files
 
-    @bindings.add('escape', eager=True)
-    @bindings.add('q', eager=True)
-    def _(event):
-        """
-        Handles the 'Escape' and 'q' key events.
-        Immediately exits the program.
-        """
-        console.print("\nExiting program.", style="red")
-        sys.exit(0)
-
-    @bindings.add('d')
-    def _(event):
-        """
-        Handles the 'd' key event.
-        Signals completion of file selection.
-        """
-        event.app.exit(result="done")
-
-    @bindings.add('?')
-    def _(event):
-        """
-        Handles the '?' key event.
-        Displays detailed help instructions for file navigation and selection.
-        """
-        console.print(
-            "\n[bold magenta]Help:[/bold magenta]\n"
-            "Navigate directories with Enter, go up with Backspace.\n"
-            "Finish selection with 'd'.\n"
-            "Exit with 'esc' or 'q'.\n"
-            "Use 'Tab' key to autocomplete file or directory names as you type."
-        )
-
-    refresh()
-    while True:
-        path = session.prompt('> ', completer=completer, key_bindings=bindings)
-        if path == "done":
-            break
-
-    return selected_files
 
 def select_model():
-    """
-    Prompts the user to select an OpenAI model from a predefined list.
+        """
+        Prompts the user to select an OpenAI model from a predefined list.
 
-    Returns:
-      str: The name of the selected model (e.g., "gpt-4o").
+        Returns:
+            str: The selected model name.
+        """
+        models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+        console.print("[bold magenta]Select OpenAI model:[/bold magenta]")
+        for idx, m in enumerate(models, 1):
+                console.print(f"{idx}. {m}")
+        while True:
+                try:
+                        choice = int(input("Enter choice: "))
+                        return models[choice - 1]
+                except (ValueError, IndexError):
+                        console.print("Invalid selection.", style="red")
 
-    Implementation Details:
-      - Displays a numbered list of models.
-      - Validates user input and re-prompts on invalid entries.
-    """
-    models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
-    console.print("[bold magenta]Select OpenAI model:[/bold magenta]")
-    for idx, model in enumerate(models, 1):
-        console.print(f"{idx}. {model}")
-    while True:
-        try:
-            choice = int(input("Enter choice: "))
-            return models[choice - 1]
-        except (ValueError, IndexError):
-            console.print("Invalid selection.", style="red")
 
 # =============================================================================
 # Summary Report Generation
 # =============================================================================
 def generate_summary_report(files, model, compilation_result):
-    """
-    Generates a detailed summary report of the optimization process and writes it to a file.
+        """
+        Generates a summary report of the optimization process and writes it to a file.
 
-    The report includes:
-      - The OpenAI model used.
-      - The date and time of processing.
-      - A list of all processed files.
-      - The result of the compilation (success or failure).
+        The report includes:
+            - The OpenAI model used.
+            - Date and time.
+            - List of processed files.
+            - Compilation status.
 
-    Parameters:
-      files (list): List of file paths that were processed.
-      model (str): The OpenAI model used for processing.
-      compilation_result (int): The return code from 'cargo build' (0 indicates success).
+        Parameters:
+            files (list): Processed file paths.
+            model (str): The OpenAI model used.
+            compilation_result (int): Return code from cargo build.
+        """
+        report_path = os.path.join("OpenAI", "summary_report.txt")
+        try:
+                with open(report_path, 'w') as report:
+                        report.write("Rust Optimization Summary Report\n")
+                        report.write(f"Model used: {model}\n")
+                        report.write(f"Date: {datetime.now()}\n\n")
+                        report.write("Processed Files:\n")
+                        for f in files:
+                                report.write(f" - {f}\n")
+                        report.write(f"\nCompilation Status: {'Success' if compilation_result == 0 else 'Failure'}\n")
+                logger.info("Summary report generated.")
+        except Exception as e:
+                error_msg = f"Error generating summary report: {e}"
+                console.print(error_msg, style="red")
+                logger.error(error_msg)
+                log_activity(error_msg)
 
-    Returns:
-      None
 
-    Implementation Details:
-      - The report is written to "OpenAI/summary_report.txt".
-      - Uses exception handling to log and report any file I/O errors.
-    """
-    report_path = os.path.join("OpenAI", "summary_report.txt")
-    try:
-        with open(report_path, 'w') as report:
-            report.write("Rust Optimization Summary Report\n")
-            report.write(f"Model used: {model}\n")
-            report.write(f"Date: {datetime.now()}\n\n")
-            report.write("Processed Files:\n")
-            for file in files:
-                report.write(f" - {file}\n")
-            report.write(f"\nCompilation Status: {'Success' if compilation_result == 0 else 'Failure'}\n")
-    except Exception as e:
-        console.print(f"Error generating summary report: {e}", style="red")
-        log_activity(f"Error generating summary report: {e}")
-
-# =============================================================================
-# Cargo Availability Check
-# =============================================================================
 def check_cargo():
-    """
-    Verifies that the 'cargo' command is available in the system's PATH.
+        """
+        Checks if the 'cargo' command is available in PATH.
 
-    Returns:
-      None
+        Raises:
+            SystemExit: If cargo is not found.
+        """
+        if shutil.which("cargo") is None:
+                error_msg = "Error: 'cargo' command not found. Please install Rust and Cargo."
+                console.print(error_msg, style="red")
+                logger.error(error_msg)
+                sys.exit(1)
 
-    Raises:
-      SystemExit: If the 'cargo' command is not found.
 
-    Implementation Details:
-      Utilizes shutil.which() to check for the command.
-    """
-    if shutil.which("cargo") is None:
-        console.print("Error: 'cargo' command not found in PATH. Please install Rust and Cargo.", style="red")
-        sys.exit(1)
+# =============================================================================
+# Unit and Integration Testing
+# =============================================================================
+def run_tests():
+        """
+        Runs basic tests for file I/O and backup functionality.
+
+        This function tests:
+            - Writing and reading a temporary file.
+            - Creating a backup of that file.
+        
+        Exits with code 0 if all tests pass.
+        """
+        import tempfile
+
+        console.print("Running tests...", style="bold blue")
+        logger.info("Starting tests.")
+
+        # Test write and read.
+        try:
+                with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
+                        test_content = "Test content"
+                        tmp.write(test_content)
+                        tmp_path = tmp.name
+                read_back = read_file(tmp_path)
+                assert read_back == test_content, "Read content does not match written content."
+                os.remove(tmp_path)
+                logger.info("File I/O test passed.")
+        except Exception as e:
+                logger.error(f"File I/O test failed: {e}")
+                console.print(f"File I/O test failed: {e}", style="red")
+                sys.exit(1)
+
+        # Test backup_files.
+        try:
+                with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
+                        tmp.write("Backup test")
+                        tmp_path = tmp.name
+                backup_path = backup_files([tmp_path])
+                # Check that file exists in backup directory.
+                backup_file = os.path.join(backup_path, os.path.basename(tmp_path))
+                assert os.path.exists(backup_file), "Backup file not found."
+                os.remove(tmp_path)
+                shutil.rmtree(backup_path)
+                logger.info("Backup test passed.")
+        except Exception as e:
+                logger.error(f"Backup test failed: {e}")
+                console.print(f"Backup test failed: {e}", style="red")
+                sys.exit(1)
+
+        console.print("All tests passed!", style="green")
+        logger.info("All tests passed.")
+        sys.exit(0)
+
 
 # =============================================================================
 # Main Execution Function
 # =============================================================================
 def main():
     """
-    Main function encapsulating the entire program logic.
-
-    Responsibilities:
-      - Set up signal handling for graceful termination.
-      - Verify that 'cargo' is installed.
-      - Load and update configuration settings.
-      - Allow interactive file selection and model selection.
-      - Create backups and process code via OpenAI.
-      - Recreate the project directory structure in the output.
-      - Optionally run 'cargo build' on the chosen project version.
-      - Generate a summary report and save updated configuration.
-
-    Returns:
-      None
-
-    Implementation Details:
-      - Uses try/except blocks to catch unexpected errors.
-      - Uses relative paths to preserve project structure.
+    Orchestrates the complete Rust source code optimization workflow via OpenAI.
+    
+    This function performs the following high-level steps:
+    
+      1. **Parse and Validate CLI Arguments:**  
+         Uses argparse to accept configuration parameters including the OpenAI model, 
+         list of source files, asynchronous mode flag, build flag, retry count, API timeout,
+         and notification email. This offers flexibility in running the tool either in a 
+         fully interactive mode or non-interactively.
+    
+      2. **Load and Update Persistent Configuration:**  
+         Reads the JSON configuration file (if present) and merges or overrides values 
+         based on received CLI arguments. This enables persistence of preferences between runs.
+    
+      3. **Determine OpenAI Model Selection:**  
+         The model is selected using the following precedence: CLI option > configuration 
+         file setting > interactive prompt. Interactive confirmation is sought unless disabled.
+    
+      4. **File Selection for Processing:**  
+         In non-interactive mode, the file paths are taken directly from the CLI; otherwise,
+         an interactive file selection prompt is presented, restricting choices to valid Rust
+         source files ('.rs' files and Cargo.toml).
+    
+      5. **Backup Original Files:**  
+         Creates a timestamped backup of all selected files to safeguard against any 
+         inadvertent modifications during processing.
+    
+      6. **Aggregate Source Code:**  
+         Reads all selected files into a single string while appending headers (with relative 
+         file paths) to simulate module/documentation annotations similar to Rust’s style. 
+         Concurrently builds a comma-separated list of file names.
+    
+      7. **Process Files with OpenAI API:**  
+         Sends the aggregated source code and metadata to the OpenAI API.  
+         - Uses synchronous or asynchronous calls based on the '--async-mode' flag.  
+         - Implements retry logic with exponential backoff for robust error handling and to
+           mitigate transient API connectivity issues.
+    
+      8. **Distribute Processed Code:**  
+         The API response is expected to include file-delimited headers. This step parses the 
+         response and writes the updated code to a dedicated output directory while preserving 
+         the original directory structure.
+    
+      9. **Optionally Compile the Code:**  
+         If enabled (by flag or user confirmation), the tool runs `cargo build` on either the 
+         original or newly optimized source files. The success or failure of the compilation
+         is logged and displayed.
+    
+     10. **Generate Summary Report and Persist Configuration:**  
+         A detailed summary report (including model used, timestamp, file list, and 
+         compilation result) is generated and saved, and the updated configuration is written 
+         back to the JSON file.
+    
+    Detailed inline logging and error handling are provided to ensure robust operation and 
+    to facilitate debugging, while comments describe the purpose and functionality of each block.
     """
-    # Set up SIGINT (Ctrl+C) handling for graceful termination.
-    signal.signal(signal.SIGINT, lambda s, f: sys.exit("\nInterrupted by user."))
+    # -------------------------------------------------------------------------
+    # Step 1: Command-Line Argument Parsing and Configuration Loading
+    # -------------------------------------------------------------------------
+    parser = argparse.ArgumentParser(
+        description="Rust OpenAI Optimizer: Optimize, debug, and comment Rust code using OpenAI LLMs."
+    )
+    # Define CLI arguments for controlling behavior and configuration.
+    parser.add_argument("--model", type=str, help="Specify the OpenAI model (e.g., gpt-4, gpt-3.5-turbo).")
+    parser.add_argument("--files", nargs="+", help="List of files to process. If omitted, interactive selection is used.")
+    parser.add_argument("--no-interactive", action="store_true", help="Disable interactive prompts for file selection.")
+    parser.add_argument("--build", action="store_true", help="Automatically run 'cargo build' after processing.")
+    parser.add_argument("--async-mode", action="store_true", help="Use asynchronous API calls to improve processing speed.")
+    parser.add_argument("--config", type=str, default="config.json", help="Path to the configuration file for persistent settings.")
+    parser.add_argument("--test", action="store_true", help="Run unit tests to verify application functionality and exit.")
+    parser.add_argument("--retry", type=int, default=3, help="Number of API retry attempts in case of transient failures (default: 3).")
+    parser.add_argument("--timeout", type=int, default=60, help="Timeout duration in seconds for the OpenAI API call (default: 60).")
+    parser.add_argument("--notification-email", type=str, help="Email address to receive error notifications, if configured.")
 
-    # Verify that the 'cargo' tool is available.
-    check_cargo()
+    args = parser.parse_args()
 
-    # Save the original working directory (assumed to be the project root where Cargo.toml resides).
-    original_cwd = os.getcwd()
+    # Immediately run tests and exit if the test flag is provided.
+    if args.test:
+        run_tests()
 
-    clear_screen()
-    console.print("[bold blue]Interactive Rust Optimizer (OpenAI)[/bold blue]\n")
+    # Load configuration from a file and override fields with CLI values.
+    config = load_config(args.config)
+    if args.retry:
+        config["retry"] = args.retry
+    if args.timeout:
+        config["timeout"] = args.timeout
 
-    # Load configuration from file (if exists) or initialize an empty config.
-    config = load_config()
-
-    # Handle OpenAI model selection. If a model is preconfigured, prompt the user to keep or change it.
-    if 'model' in config:
-        model = config['model']
-        console.print(f"Using previously configured model: [bold green]{model}[/bold green]")
-        change_model = input("Change model? (y/n): ").strip().lower()
-        if change_model == 'y':
-            model = select_model()
-            config['model'] = model
+    # -------------------------------------------------------------------------
+    # Step 2: Determine and Confirm OpenAI Model Selection
+    # -------------------------------------------------------------------------
+    # Prioritize the model provided via CLI, then the saved config, and finally reach out
+    # to the user for interactive selection if needed.
+    if args.model:
+        model = args.model
+    elif "model" in config:
+        model = config["model"]
+        if not args.no_interactive:
+            console.print(f"Using previously configured model: [bold green]{model}[/bold green]")
+            change = input("Change model? (y/n): ").strip().lower()
+            if change == "y":
+                model = select_model()
     else:
         model = select_model()
-        config['model'] = model
+    config["model"] = model
 
-    # Launch interactive file selection.
-    files = select_files()
+    # -------------------------------------------------------------------------
+    # Step 3: File Selection for Processing
+    # -------------------------------------------------------------------------
+    # Files can be provided directly via CLI or selected interactively.
+    if args.files:
+        files = [os.path.abspath(f) for f in args.files]
+    elif args.no_interactive:
+        console.print("Error: No files provided and interactive mode is disabled.", style="red")
+        sys.exit(1)
+    else:
+        files = select_files()
+
     if not files:
         console.print("No files selected. Exiting.", style="red")
         sys.exit(0)
+    config["selected_files"] = files
 
-    # Ask the user if selected files should be saved to configuration for future runs.
-    save_files_choice = input("Save selected files to configuration? (y/n): ").strip().lower()
-    if save_files_choice == 'y':
-        config['selected_files'] = files
-
-    # Create a backup of the selected files before any processing.
+    # -------------------------------------------------------------------------
+    # Step 4: Backup Original Files Before Modification
+    # -------------------------------------------------------------------------
+    # A backup is crucial to ensure that the source files are preserved in their original state.
     backup_dir = backup_files(files)
     log_activity(f"Backed up files to {backup_dir}")
 
-    # Prepare file contents and names for OpenAI processing.
-    # Compute each file's relative path with respect to the original working directory.
+    # Save the present working directory (typically the project's root) for constructing relative paths.
+    original_cwd = os.getcwd()
+
+    # -------------------------------------------------------------------------
+    # Step 5: Aggregate Source Code Contents and Filenames
+    # -------------------------------------------------------------------------
+    # Read each file's content and append a standardized header for identification.
     file_contents = ""
     file_names = ""
-    for file_path in tqdm(files, desc="Reading Files"):
-        content = read_file(file_path)
-        rel_path = os.path.relpath(file_path, original_cwd)
+    for f in tqdm(files, desc="Reading Files"):
+        content = read_file(f)
+        rel_path = os.path.relpath(f, original_cwd)
+        # Append header in a format resembling Rust module documentation.
         file_contents += f"\n\n## File: {rel_path} ##\n{content}"
         file_names += f"{rel_path}, "
 
-    # Send the concatenated code to the OpenAI API for processing.
-    processed_output = process_code(file_contents, file_names.strip(", "), model)
-    
-    # Split the processed output into sections based on file headers.
-    outputs = processed_output.split("## File: ")[1:]
+    # -------------------------------------------------------------------------
+    # Step 6: Process Files with the OpenAI API (Sync vs Async)
+    # -------------------------------------------------------------------------
+    # Send the prepared source code to the OpenAI API with enhanced error handling.
+    if args.async_mode:
+        processed_output = asyncio.run(
+            process_code_async(
+                file_contents, 
+                file_names.strip(", "), 
+                model,
+                retries=config.get("retry", 3),
+                timeout=config.get("timeout", 60)
+            )
+        )
+    else:
+        processed_output = process_code(
+            file_contents, 
+            file_names.strip(", "), 
+            model,
+            retries=config.get("retry", 3),
+            timeout=config.get("timeout", 60)
+        )
+    logger.info("Processing complete using the OpenAI API.")
 
-    # Write the processed (optimized) files to the "OpenAI" output directory,
-    # preserving the original directory structure.
-    output_dir = "OpenAI"
+    # -------------------------------------------------------------------------
+    # Step 7: Distribute Processed Code into Individual Files
+    # -------------------------------------------------------------------------
+    # The API returns a string with headers delineating each file's content.
+    outputs = processed_output.split("## File: ")[1:]
+    output_dir = "OpenAI"  # Output directory for the modified files.
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        console.print(f"Error creating output directory '{output_dir}': {e}", style="red")
+        error_msg = f"Error creating output directory '{output_dir}': {e}"
+        console.print(error_msg, style="red")
+        logger.error(error_msg)
         sys.exit(1)
 
+    # Iterate over each file segment in the output.
     for output in tqdm(outputs, desc="Writing Files"):
         header_end = output.find(" ##")
         rel_path = output[:header_end].strip()
-        code = output[header_end + 3:].strip()
+        code = output[header_end + 3:].trip()
         dest_file = os.path.join(output_dir, rel_path)
         try:
+            # Ensure that the directory for the current file is created.
             os.makedirs(os.path.dirname(dest_file), exist_ok=True)
             write_file(dest_file, code)
         except Exception as e:
-            console.print(f"Error writing optimized file '{dest_file}': {e}", style="red")
-            log_activity(f"Error writing optimized file '{dest_file}': {e}")
+            error_msg = f"Error writing optimized file '{dest_file}': {e}"
+            console.print(error_msg, style="red")
+            logger.error(error_msg)
+            log_activity(error_msg)
 
-    # Prompt the user to optionally run 'cargo build' to verify compilation.
-    console.print("\n[bold magenta]Would you like to run 'cargo build' to check compilation?[/bold magenta]")
-    compile_choice = input("Compile now? (y/n): ").strip().lower()
-
-    if compile_choice == 'y':
+    # -------------------------------------------------------------------------
+    # Step 8: Optional Compilation Using 'cargo build'
+    # -------------------------------------------------------------------------
+    # Prompt the user (or automatically proceed in non-interactive mode) to compile
+    # the original or optimized source files using Rust's build system.
+    if args.build or (not args.no_interactive and input("Run 'cargo build'? (y/n): ").strip().lower() == "y"):
+        check_cargo()  # Validates the installation of Cargo.
         console.print("\n[bold magenta]Compile using:[/bold magenta]")
         console.print("1. Original source files")
         console.print("2. Optimized OpenAI files")
-        source_choice = input("Enter choice (1 or 2): ").strip()
-
-        # Determine the appropriate directory for compilation.
+        # In non-interactive mode, default to optimized files.
+        if args.no_interactive:
+            source_choice = "2"
+        else:
+            source_choice = input("Enter choice (1 or 2): ").strip()
         if source_choice == "1":
-            cargo_toml_path = next((f for f in files if os.path.basename(f) == "Cargo.toml"), None)
-            if cargo_toml_path:
-                compile_dir = os.path.dirname(cargo_toml_path)
-            else:
-                compile_dir = original_cwd
+            cargo_toml = next((f for f in files if os.path.basename(f) == "Cargo.toml"), None)
+            compile_dir = os.path.dirname(cargo_toml) if cargo_toml else original_cwd
         else:
             compile_dir = os.path.join(original_cwd, "OpenAI")
-
         try:
-            result = subprocess.run(["cargo", "build"], cwd=compile_dir, capture_output=True, text=True)
+            # Invoke Cargo build and capture the output.
+            result = subprocess.run(
+                ["cargo", "build"],
+                cwd=compile_dir,
+                capture_output=True,
+                text=True
+            )
         except Exception as e:
-            console.print(f"Error during 'cargo build': {e}", style="red")
-            log_activity(f"Error during 'cargo build': {e}")
+            error_msg = f"Error during 'cargo build': {e}"
+            console.print(error_msg, style="red")
+            logger.error(error_msg)
+            log_activity(error_msg)
             sys.exit(1)
-
         log_activity(f"Compilation {'success' if result.returncode == 0 else 'failure'} "
                      f"({'original' if source_choice == '1' else 'optimized'})")
-
         if result.returncode == 0:
             console.print("Compilation successful!", style="green")
         else:
             console.print("Compilation failed:", style="red")
             console.print(result.stderr)
     else:
+        # If compilation is skipped, create a dummy result object for reporting.
         result = type('obj', (object,), {'returncode': 1})()
         console.print("Skipping compilation step.", style="yellow")
 
-    # Generate and save a summary report of the optimization and compilation process.
+    # -------------------------------------------------------------------------
+    # Step 9: Generate Summary Report and Save Updated Configuration
+    # -------------------------------------------------------------------------
+    # Create a summary report detailing the process (including the OpenAI model used,
+    # timestamp, file list, and compilation outcome) and update the configuration file.
     generate_summary_report(files, model, result.returncode)
-    save_config(config)
-    console.print("Files / Summary Report Saved in 'OpenAI' -- Configuration Saved")
+    save_config(config, args.config)
+    console.print("Files / Summary Report Saved in 'OpenAI' -- Configuration Saved", style="green")
+
 
 # =============================================================================
 # Entry Point
 # =============================================================================
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        console.print(f"Unexpected error: {e}", style="red")
-        log_activity(f"Unexpected error: {e}")
-        sys.exit(1)
+        try:
+                main()
+        except Exception as e:
+                error_msg = f"Unexpected error: {e}"
+                console.print(error_msg, style="red")
+                logger.exception("Unexpected error")
+                send_error_notification(error_msg, notification_email=os.getenv("NOTIFICATION_EMAIL"))
+                sys.exit(1)

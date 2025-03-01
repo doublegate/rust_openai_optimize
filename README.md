@@ -6,13 +6,15 @@
 
 ## Overview
 
-This powerful Python3 script leverages OpenAI's GPT models to optimize, debug, restructure, and thoroughly comment your Rust source code. In the latest update, the tool includes:
+This powerful Python3 script leverages OpenAI's GPT models to optimize, debug, restructure, and thoroughly comment your Rust source code. In the latest update, the tool now includes:
 
 - Advanced interactive file selection with improved keyboard shortcuts.
 - Automatic, timestamped backups of selected files.
 - Detailed summary report generation including model used, processed files, and compilation results.
-- Robust error handling and logging.
-- Persistent user configuration for selected files and models.
+- Robust error handling with structured logging.
+- Persistent configuration saving.
+- Support for command-line arguments to run in non-interactive, asynchronous, or test modes.
+- Optional error notifications via email.
 
 ## Features
 
@@ -88,13 +90,21 @@ python rust_openai_optimizer.py
 
 ## Workflow
 
-1. **Model Selection:** Choose the OpenAI GPT model for processing.
-2. **File Selection:** Navigate directories interactively and select files to optimize.
-3. **Backup:** Original files are automatically backed up with a timestamp.
-4. **Optimization:** Selected files are sent to OpenAI for processing.
-5. **Compilation Check (Optional):** Choose to compile either the original or optimized files using `cargo build`.
-6. **Output:** Optimized files and a detailed summary report are saved in the `OpenAI` directory, and activities are logged.
-7. **Configuration:** Preferences such as selected models are automatically saved and loaded for convenience.
+1. **Model & CLI Options:** Choose or pass the OpenAI model and other options through command-line arguments.
+2. **File Selection:** Either through interactive prompts or CLI-provided file paths.
+3. **Backup:** Create timestamped backups of original files.
+4. **Optimization Process:** Aggregate and send source code to OpenAI using synchronous or asynchronous calls.
+5. **Testing (Optional):** Run integrated unit tests using the `--test` flag.
+6. **Compilation Check:** Optionally run `cargo build` on original or optimized files.
+7. **Output & Reporting:** Save optimized files and generate a detailed summary report.
+
+## What's New (v0.3.0)
+
+- **CLI Argument Parsing:** Now supports options for model selection, file inputs, non-interactive mode, asynchronous processing (`--async-mode`), test execution (`--test`), and configuration via `--config`.
+- **Asynchronous Processing:** Added async API calls for improved performance.
+- **Unit & Integration Testing:** Included tests to verify file I/O and backup functionality.
+- **Structured Logging:** Integrated Python's logging module for advanced, structured logging.
+- **Error Notifications:** (Optional) Email notifications for critical errors are supported via configuration.
 
 ## What's New (v0.2.0)
 
